@@ -1,0 +1,27 @@
+{
+  "name": "xpost-gas",
+  "version": "1.0.0",
+  "description": "X(Twitter) OAuth 2.0 posting bot for Google Apps Script",
+  "scripts": {
+    "build": "tsc",
+    "push": "npx clasp push --force",
+    "deploy": "npm run build && npm run push",
+    "dev": "npm run deploy",
+    "login": "npx clasp login",
+    "status": "npx clasp status",
+    "logs": "npx clasp logs",
+    "open": "npx clasp open",
+    "info": "npx clasp status && npx clasp deployments",
+    "clean": "rm -rf dist/*.js",
+    "reset": "npm run clean && npm run deploy",
+    "watch": "tsc --watch"
+  },
+  "keywords": ["twitter", "oauth", "google-apps-script", "typescript"],
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "@google/clasp": "^2.4.2",
+    "@types/google-apps-script": "^1.0.83",
+    "typescript": "^5.3.3"
+  }
+}
