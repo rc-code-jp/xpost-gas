@@ -1,0 +1,312 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# テストとコード品質
+
+## 目的
+Google Apps Script環境での効果的なテスト手法とデバッグ方法により、高品質で信頼性の高いコードを維持する。
+
+## コンテキスト
+- Google Apps Script環境（従来のJestなど使用不可）
+- Logger.logベースのデバッグ
+- 手動テストとモックデータ活用
+- 実本番環境での慎重なテスト
+
+## ルール
+
+### テスト関数の実装
+
+#### テスト関数命名
+- `test`プレフィックスを使用
+- 具体的で分かりやすい名前
+- 日本語コメントで目的説明
+
+✅ 良い例:
+```typescript
+/**
+ * OAuth認証フローのテスト
+ */
+function testOAuthFlow(): void {
+  try {
+    Logger.log('=== OAuth認証フローテスト開始 ===');
+    
+    // 1. 認証URL生成テスト
+    const authUrl = startOAuthAuthentication();
+    Logger.log(`認証URL生成成功: ${authUrl.substring(0, 50)}...`);
+    
+    // 2. URL形式検証
+    if (!authUrl.includes('code_challenge') || !authUrl.includes('state')) {
+      throw new Error('認証URLに必要なパラメータが含まれていません');
+    }
+    
+    Logger.log('✅ OAuth認証URLテスト成功');
+    
+  } catch (error) {
+    Logger.log(`❌ OAuth認証テストエラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * スプレッドシート操作のテスト
+ */
+function testSpreadsheetOperations(): void {
+  try {
+    Logger.log('=== スプレッドシート操作テスト開始 ===');
+    
+    const testSpreadsheetId = PropertiesService.getScriptProperties().getProperty('TEST_SPREADSHEET_ID');
+    if (!testSpreadsheetId) {
+      throw new Error('TEST_SPREADSHEET_IDが設定されていません');
+    }
+    
+    // 認証情報テストデータ
+    const testAuthInfo = {
+      userId: 'test_user_123',
+      userName: 'TestUser',
+      token: 'test_token_abc',
+      refreshToken: 'test_refresh_xyz'
+    };
+    
+    // 1. 保存テスト
+    SpreadsheetManager.saveAuthInfo(
+      testSpreadsheetId,
+      testAuthInfo.userId,
+      testAuthInfo.userName,
+      testAuthInfo.token,
+      testAuthInfo.refreshToken
+    );
+    Logger.log('✅ 認証情報保存テスト成功');
+    
+    // 2. 取得テスト
+    const authList = SpreadsheetManager.getAuthInfo(testSpreadsheetId);
+    const savedInfo = authList.find(info => info.userId === testAuthInfo.userId);
+    
+    if (!savedInfo) {
+      throw new Error('保存した認証情報が取得できません');
+    }
+    
+    if (savedInfo.userName !== testAuthInfo.userName) {
+      throw new Error('ユーザー名が一致しません');
+    }
+    
+    Logger.log('✅ 認証情報取得テスト成功');
+    
+  } catch (error) {
+    Logger.log(`❌ スプレッドシートテストエラー: ${error}`);
+    throw error;
+  }
+}
+```
+
+#### モックデータ活用
+- 本番データを使わないテスト設計
+- テスト専用のスプレッドシート使用
+- API呼び出しのモック実装
+
+✅ 良い例:
+```typescript
+/**
+ * X投稿機能のモックテスト
+ */
+function testXPostingMock(): void {
+  try {
+    Logger.log('=== X投稿モックテスト開始 ===');
+    
+    // モック設定
+    const originalUrlFetch = UrlFetchApp.fetch;
+    
+    // UrlFetchAppのモック実装
+    const mockFetch = (url: string, options: any) => {
+      Logger.log(`モック API呼び出し: ${url}`);
+      Logger.log(`パラメータ: ${JSON.stringify(options.payload)}`);
+      
+      // 成功レスポンスをシミュレート
+      return {
+        getResponseCode: () => 201,
+        getContentText: () => JSON.stringify({
+          data: {
+            id: 'mock_tweet_id_123',
+            text: 'モックツイート'
+          }
+        })
+      };
+    };
+    
+    // 一時的にモック関数に置き換え
+    (UrlFetchApp as any).fetch = mockFetch;
+    
+    // テスト実行
+    const testUserId = 'test_user_123';
+    const testText = 'テスト投稿です';
+    
+    // postTweetForUser関数をテスト（実際のAPI呼び出しなし）
+    // この部分は実装に応じて調整
+    
+    Logger.log('✅ X投稿モックテスト成功');
+    
+    // 元の関数を復元
+    (UrlFetchApp as any).fetch = originalUrlFetch;
+    
+  } catch (error) {
+    Logger.log(`❌ X投稿モックテストエラー: ${error}`);
+    throw error;
+  }
+}
+```
+
+### デバッグ手法
+
+#### Logger活用
+- 段階的な処理状況記録
+- エラー情報の詳細ログ
+- パフォーマンス測定
+
+✅ 良い例:
+```typescript
+function debugTokenValidation(): void {
+  const startTime = new Date().getTime();
+  Logger.log(`=== トークン検証デバッグ開始: ${new Date().toLocaleString()} ===`);
+  
+  try {
+    const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID);
+    Logger.log(`取得済み認証情報数: ${authList.length}`);
+    
+    for (let i = 0; i < authList.length; i++) {
+      const user = authList[i];
+      const userStartTime = new Date().getTime();
+      
+      Logger.log(`--- ユーザー ${i + 1}/${authList.length}: ${user.userName} ---`);
+      Logger.log(`ユーザーID: ${user.userId}`);
+      Logger.log(`トークン長さ: ${user.token.length}`);
+      Logger.log(`リフレッシュトークン長さ: ${user.refreshToken.length}`);
+      
+      // トークンテスト
+      const isValid = XPoster.testUserToken(SPREADSHEET_ID, user.userId);
+      const userEndTime = new Date().getTime();
+      
+      Logger.log(`結果: ${isValid ? '✅ 有効' : '❌ 無効'}`);
+      Logger.log(`処理時間: ${userEndTime - userStartTime}ms`);
+      
+      // 少し待機（API制限対策）
+      if (i < authList.length - 1) {
+        Utilities.sleep(1000);
+      }
+    }
+    
+    const endTime = new Date().getTime();
+    Logger.log(`=== デバッグ完了: 総処理時間 ${endTime - startTime}ms ===`);
+    
+  } catch (error) {
+    Logger.log(`デバッグ中エラー: ${error.toString()}`);
+    Logger.log(`エラースタック: ${error.stack || 'スタック情報なし'}`);
+  }
+}
+```
+
+#### エラー追跡
+- 詳細なエラー情報記録
+- 再現可能な条件記録
+- 段階的な原因特定
+
+✅ 良い例:
+```typescript
+function debugAPIError(): void {
+  try {
+    Logger.log('=== API エラーデバッグ ===');
+    
+    // 設定確認
+    const properties = PropertiesService.getScriptProperties().getProperties();
+    Logger.log('設定状況:');
+    Logger.log(`- TWITTER_CLIENT_ID: ${properties.TWITTER_CLIENT_ID ? '設定済み' : '未設定'}`);
+    Logger.log(`- TWITTER_CLIENT_SECRET: ${properties.TWITTER_CLIENT_SECRET ? '設定済み' : '未設定'}`);
+    Logger.log(`- SPREADSHEET_ID: ${properties.SPREADSHEET_ID ? '設定済み' : '未設定'}`);
+    
+    // ネットワーク接続確認
+    const testUrl = 'https://api.twitter.com/2/tweets';
+    const testOptions = {
+      method: 'GET',
+      headers: {
+        'Authorization': 'Bearer test_token'
+      },
+      muteHttpExceptions: true
+    };
+    
+    Logger.log('ネットワーク接続テスト...');
+    const response = UrlFetchApp.fetch(testUrl, testOptions);
+    Logger.log(`レスポンスコード: ${response.getResponseCode()}`);
+    Logger.log(`レスポンス内容: ${response.getContentText().substring(0, 200)}...`);
+    
+  } catch (error) {
+    Logger.log(`デバッグ実行エラー: ${error.toString()}`);
+  }
+}
+```
+
+### コード品質チェック
+
+#### 手動レビューチェックリスト
+定期的に以下を確認する：
+
+1. **型安全性**
+   - any型の使用箇所確認
+   - 適切な型注釈
+   - null/undefined チェック
+
+2. **エラーハンドリング**
+   - try-catch の適切な配置
+   - エラーメッセージの適切性
+   - ログ出力の充実
+
+3. **セキュリティ**
+   - ハードコーディングされた秘密情報
+   - 適切な認証チェック
+   - 入力値検証
+
+4. **パフォーマンス**
+   - 不要な API 呼び出し
+   - スプレッドシート操作の効率性
+   - ループ処理の最適化
+
+#### コード品質関数
+```typescript
+/**
+ * コード品質チェック関数
+ */
+function runQualityChecks(): void {
+  Logger.log('=== コード品質チェック開始 ===');
+  
+  // 1. 設定完全性チェック
+  checkConfiguration();
+  
+  // 2. 基本機能テスト
+  testBasicFunctions();
+  
+  // 3. セキュリティチェック
+  checkSecurity();
+  
+  // 4. パフォーマンステスト
+  testPerformance();
+  
+  Logger.log('=== コード品質チェック完了 ===');
+}
+
+function checkConfiguration(): void {
+  const requiredProps = ['TWITTER_CLIENT_ID', 'TWITTER_CLIENT_SECRET', 'SPREADSHEET_ID'];
+  const properties = PropertiesService.getScriptProperties().getProperties();
+  
+  requiredProps.forEach(prop => {
+    if (!properties[prop]) {
+      Logger.log(`❌ 設定不備: ${prop} が未設定`);
+    } else {
+      Logger.log(`✅ 設定確認: ${prop}`);
+    }
+  });
+}
+```
+
+## 例外
+- 本番環境での限定的なテスト実行
+- 緊急修正時の簡略化されたテスト
+- 外部API制限による完全テストの制約

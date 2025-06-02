@@ -1,5 +1,11 @@
 # X(Twitter) 自動ポストBot（OAuth 2.0対応）
 
+Sheet
+https://docs.google.com/spreadsheets/d/1yM0e7GG35zb_T8N6Hy9SRoXWY0jorDZ9xjhcbIHTIsc/edit?gid=0#gid=0
+
+GAS
+https://script.google.com/home/projects/1FPX97_19GFZQdEj3DGy-E6T-cdEkrNjbO3vxh8zKzROo_son5-cZpait/edit?hl=ja
+
 ## 概要
 Google Apps Script（GAS）を使用したX(Twitter)自動ポストシステムです。OAuth 2.0 + PKCE認証による安全な認証と、スプレッドシートからのランダムツイート投稿機能を提供します。
 

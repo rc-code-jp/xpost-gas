@@ -1,0 +1,121 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# TypeScript + GAS コーディングスタイル
+
+## 目的
+一貫性のあるコードスタイルを維持し、可読性と保守性を向上させる。Google Apps Script特有の制約を考慮したTypeScriptコードの品質を保つ。
+
+## コンテキスト
+- TypeScript 5.3.3使用
+- Google Apps Script環境（ES2019ターゲット）
+- CLASP（Google Apps Script CLI）によるデプロイ
+- OAuth 2.0 APIとスプレッドシート操作
+
+## ルール
+
+### 変数・関数名
+- **camelCase**を使用する
+- 定数は**UPPER_SNAKE_CASE**
+- プライベートメソッドには`_`プレフィックス
+- 日本語コメントを積極的に使用
+
+✅ 良い例:
+```typescript
+const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+const authUrl = XOAuth.getAuthorizationUrl();
+
+/**
+ * OAuth 2.0認証を開始する関数
+ */
+function startOAuthAuthentication(): string {
+  // 認証URLを生成
+  return XOAuth.getAuthorizationUrl();
+}
+```
+
+❌ 避ける:
+```typescript
+const spreadsheet_id = "some_id";
+const URL = generateurl();
+```
+
+### 型定義
+- 明示的な型注釈を使用
+- 戻り値の型を明記
+- `any`型は避ける
+
+✅ 良い例:
+```typescript
+interface AuthInfo {
+  userId: string;
+  userName: string;
+  token: string;
+  refreshToken: string;
+}
+
+function getAuthInfo(spreadsheetId: string): AuthInfo[] {
+  // 実装
+}
+```
+
+### エラーハンドリング
+- try-catchを必須とする
+- Logger.logでエラー内容を記録
+- 日本語エラーメッセージ推奨
+
+✅ 良い例:
+```typescript
+function postRandomTweet(): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
+    }
+    XPoster.postRandomTweetForUsers(SPREADSHEET_ID);
+  } catch (error) {
+    Logger.log(`ランダムツイート投稿エラー: ${error}`);
+    throw error;
+  }
+}
+```
+
+### JSDoc コメント
+- 公開関数にはJSDocを必須
+- 日本語でわかりやすく説明
+- パラメータと戻り値を明記
+
+✅ 良い例:
+```typescript
+/**
+ * 特定ユーザーでツイートを投稿する関数
+ * @param userId ユーザーID
+ * @param customText カスタムテキスト（オプション）
+ */
+function postTweetForSpecificUser(userId: string, customText?: string): void {
+  // 実装
+}
+```
+
+### Google Apps Script固有
+- PropertiesServiceの適切な使用
+- Logger.logによるログ出力
+- Global関数の適切な公開
+
+✅ 良い例:
+```typescript
+// 設定値はPropertiesServiceから取得
+const SPREADSHEET_ID = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID') || '';
+
+// 明示的なグローバル関数宣言
+declare global {
+  function startOAuthAuthentication(): string;
+  function completeOAuthAuthentication(authCode: string, state: string): void;
+}
+```
+
+## 例外
+- Google Apps Scriptの制約により、ES6モジュールは使用しない
+- ビルド後のJavaScriptファイルは編集しない
+- CLASP設定ファイルは原則変更しない

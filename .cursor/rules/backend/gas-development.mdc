@@ -1,0 +1,232 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Google Apps Script 開発ルール
+
+## 目的
+Google Apps Script環境の特殊性を理解し、制約の中で効率的で安全なアプリケーションを開発する。
+
+## コンテキスト
+- Google Apps Script V8 ランタイム
+- CLASP（Google Apps Script CLI）
+- TypeScript → JavaScript トランスパイル
+- 6分間実行時間制限
+- 外部APIアクセス制限
+
+## ルール
+
+### Google Apps Script API使用
+
+#### PropertiesService
+- 秘密情報（APIキー、トークン）の保存に使用
+- スクリプトプロパティとユーザープロパティの使い分け
+- 必ずnullチェックを行う
+
+✅ 良い例:
+```typescript
+// 設定値の安全な取得
+const CLIENT_ID = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_ID');
+if (!CLIENT_ID) {
+  throw new Error('TWITTER_CLIENT_IDが設定されていません。プロパティサービスで設定してください。');
+}
+
+// 複数設定の一括取得
+const properties = PropertiesService.getScriptProperties().getProperties();
+const {
+  TWITTER_CLIENT_ID: clientId,
+  TWITTER_CLIENT_SECRET: clientSecret,
+  SPREADSHEET_ID: spreadsheetId
+} = properties;
+```
+
+❌ 避ける:
+```typescript
+// nullチェックなし
+const CLIENT_ID = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_ID');
+const response = UrlFetchApp.fetch(CLIENT_ID); // CLIENT_IDがnullの可能性
+```
+
+#### Logger と console
+- Logger.logを推奨（GAS環境で確実に動作）
+- console.logは開発時のみ
+- エラー情報は詳細に記録
+
+✅ 良い例:
+```typescript
+try {
+  const result = UrlFetchApp.fetch(url, options);
+  Logger.log(`API呼び出し成功: ${url} - ステータス: ${result.getResponseCode()}`);
+} catch (error) {
+  Logger.log(`API呼び出しエラー: ${url} - エラー: ${error.toString()}`);
+  throw error;
+}
+```
+
+#### UrlFetchApp
+- 外部API呼び出しの標準方法
+- 適切なオプション設定（headers, method, payload）
+- レスポンスコードの確認必須
+
+✅ 良い例:
+```typescript
+const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+  method: 'POST',
+  headers: {
+    'Authorization': `Bearer ${accessToken}`,
+    'Content-Type': 'application/json'
+  },
+  payload: JSON.stringify(data),
+  muteHttpExceptions: true
+};
+
+const response = UrlFetchApp.fetch(url, options);
+const responseCode = response.getResponseCode();
+
+if (responseCode !== 200) {
+  throw new Error(`API エラー: ${responseCode} - ${response.getContentText()}`);
+}
+```
+
+### スプレッドシート操作
+
+#### SpreadsheetApp
+- バッチ操作を活用（getValues, setValues）
+- 1セルずつの操作は避ける
+- シート存在確認を必須とする
+
+✅ 良い例:
+```typescript
+// バッチ読み込み
+const sheet = SpreadsheetApp.openById(spreadsheetId).getSheetByName('認証情報');
+if (!sheet) {
+  throw new Error('「認証情報」シートが見つかりません');
+}
+
+const values = sheet.getDataRange().getValues();
+const headers = values[0];
+const authData = values.slice(1);
+
+// バッチ書き込み  
+const newData = [
+  ['user123', 'username', 'token_abc', 'refresh_xyz']
+];
+sheet.getRange(sheet.getLastRow() + 1, 1, newData.length, newData[0].length)
+     .setValues(newData);
+```
+
+❌ 避ける:
+```typescript
+// 1セルずつの操作（非効率）
+for (let i = 0; i < data.length; i++) {
+  sheet.getRange(i + 1, 1).setValue(data[i].userId);
+  sheet.getRange(i + 1, 2).setValue(data[i].userName);
+  // ...
+}
+```
+
+### 実行時間とパフォーマンス
+
+#### 6分制限対策
+- 長時間処理は分割する
+- トリガーによる非同期実行
+- プロパティサービスによる状態保持
+
+✅ 良い例:
+```typescript
+function validateAndRefreshAllTokens(): void {
+  const properties = PropertiesService.getScriptProperties();
+  const lastIndex = parseInt(properties.getProperty('LAST_PROCESSED_INDEX') || '0');
+  const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID);
+  
+  // 一度に処理するユーザー数を制限
+  const batchSize = 10;
+  const endIndex = Math.min(lastIndex + batchSize, authList.length);
+  
+  for (let i = lastIndex; i < endIndex; i++) {
+    const user = authList[i];
+    XPoster.testUserToken(SPREADSHEET_ID, user.userId);
+  }
+  
+  // 進捗を保存
+  properties.setProperty('LAST_PROCESSED_INDEX', endIndex.toString());
+  
+  // 全て完了していない場合は次のトリガーを設定
+  if (endIndex < authList.length) {
+    ScriptApp.newTrigger('validateAndRefreshAllTokens')
+             .timeBased()
+             .after(1000) // 1秒後
+             .create();
+  } else {
+    properties.deleteProperty('LAST_PROCESSED_INDEX');
+  }
+}
+```
+
+### セキュリティ
+
+#### 認証情報の管理
+- PropertiesServiceに保存
+- ハードコーディング禁止
+- アクセストークンの適切な更新
+
+✅ 良い例:
+```typescript
+// 設定からの取得
+const clientId = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_ID');
+const clientSecret = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_SECRET');
+
+// スプレッドシートでの暗号化保存（簡易的）
+const encryptedToken = Utilities.base64Encode(accessToken);
+```
+
+#### CORS とWebアプリ
+- doGet/doPost関数の適切な実装
+- CSRFトークンの使用を検討
+- HTMLServiceによる安全なレスポンス
+
+✅ 良い例:
+```typescript
+function doGet(e: GoogleAppsScript.Events.DoGet): GoogleAppsScript.HTML.HtmlOutput {
+  const authCode = e.parameter.code;
+  const state = e.parameter.state;
+  
+  // ステート検証
+  const savedState = PropertiesService.getScriptProperties().getProperty('OAUTH_STATE');
+  if (state !== savedState) {
+    throw new Error('不正なリクエストです');
+  }
+  
+  // HTMLの安全な生成
+  const html = HtmlService.createHtmlOutput(template)
+                          .setTitle('認証完了')
+                          .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DENY);
+  return html;
+}
+```
+
+### CLASP ワークフロー
+
+#### デプロイ手順
+1. TypeScriptビルド
+2. CLASP push
+3. バージョン管理
+
+✅ 良い例:
+```bash
+# 推奨デプロイコマンド
+npm run deploy  # ビルド + プッシュ
+
+# 開発時の監視
+npm run watch  # TypeScript変更監視
+```
+
+#### 設定ファイル管理
+- `.clasp.json`の適切な設定
+- `appsscript.json`のマニフェスト管理
+
+## 例外
+- デバッグ時の一時的なconsole.log使用は許可
+- 開発環境でのハードコーディング（本番前に削除）
+- レガシーコード移行時の段階的改善

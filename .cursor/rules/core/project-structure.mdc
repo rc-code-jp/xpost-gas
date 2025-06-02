@@ -1,0 +1,153 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# プロジェクト構造とファイル組織
+
+## 目的
+明確で保守しやすいプロジェクト構造を維持し、開発効率を向上させる。Google Apps Scriptプロジェクトの特性を活かした組織化を行う。
+
+## コンテキスト
+- Google Apps Script + TypeScript プロジェクト
+- CLASP による開発・デプロイワークフロー
+- スプレッドシート連携アプリケーション
+- OAuth 2.0 APIサービス
+
+## ルール
+
+### ディレクトリ構造
+プロジェクトは以下の構造を維持する：
+
+```
+xpost-gas/
+├── src/                    # TypeScriptソースコード
+│   ├── Code.ts            # エントリーポイント（Global関数）
+│   ├── OAuth.ts           # OAuth 2.0認証ロジック
+│   ├── XPoster.ts         # X投稿機能
+│   ├── SpreadsheetManager.ts # スプレッドシート操作
+│   └── global.d.ts        # グローバル型定義
+├── dist/                   # ビルド済みJavaScript（自動生成）
+├── .cursor/               # Cursorエディタ設定
+│   └── rules/             # 開発ルール
+├── .vscode/               # VS Code設定
+│   └── tasks.json         # ビルドタスク
+├── package.json           # NPM設定
+├── tsconfig.json          # TypeScript設定
+├── .clasp.json           # CLASP設定
+└── appsscript.json       # GAS設定
+```
+
+### ファイル命名規則
+- **TypeScript**: PascalCase (例: `XPoster.ts`, `SpreadsheetManager.ts`)
+- **設定ファイル**: kebab-case または標準名 (例: `tsconfig.json`, `.clasp.json`)
+- **グローバル関数**: camelCase (例: `startOAuthAuthentication`)
+
+✅ 良い例:
+```
+src/OAuthManager.ts
+src/TwitterAPI.ts
+src/UtilityHelper.ts
+```
+
+❌ 避ける:
+```
+src/oauth_manager.ts
+src/twitter-api.ts
+src/utilityhelper.ts
+```
+
+### ファイルの責務分離
+
+#### Code.ts
+- Google Apps Scriptのグローバル関数定義
+- Webアプリケーションエントリーポイント
+- トリガー関数の定義
+
+✅ 良い例:
+```typescript
+/**
+ * OAuth 2.0認証を開始する関数（GET リクエスト用）
+ */
+function startOAuthAuthentication(): string {
+  return XOAuth.getAuthorizationUrl();
+}
+
+/**
+ * Web App用のdoGet関数
+ */
+function doGet(e: GoogleAppsScript.Events.DoGet): GoogleAppsScript.HTML.HtmlOutput {
+  // WebApp処理
+}
+```
+
+#### 機能別クラス
+- 1ファイル1クラスの原則
+- 静的メソッドによる機能提供
+- 明確な責務境界
+
+✅ 良い例:
+```typescript
+// XPoster.ts - X投稿専用
+class XPoster {
+  static postRandomTweetForUsers(spreadsheetId: string): void { }
+  static postTweetForUser(spreadsheetId: string, userId: string): void { }
+}
+
+// SpreadsheetManager.ts - スプレッドシート操作専用  
+class SpreadsheetManager {
+  static getAuthInfo(spreadsheetId: string): AuthInfo[] { }
+  static saveAuthInfo(spreadsheetId: string, ...args: string[]): void { }
+}
+```
+
+### 設定ファイル管理
+
+#### 環境依存設定
+- `.clasp.json`: CLASP プロジェクト設定
+- `appsscript.json`: GAS マニフェスト
+- PropertiesService: 秘密情報（API キー等）
+
+#### 開発環境設定
+- `tsconfig.json`: TypeScript コンパイル設定
+- `.vscode/tasks.json`: VS Code タスク定義
+- `package.json`: 依存関係とスクリプト
+
+### ビルド・デプロイ管理
+
+#### distディレクトリ
+- 自動生成ファイルのため直接編集禁止
+- `.gitignore`に含める（ただし、GASには必要）
+- ビルド時に自動クリーンアップ
+
+#### NPMスクリプト活用
+```json
+{
+  "scripts": {
+    "build": "tsc",
+    "push": "npx clasp push --force", 
+    "deploy": "npm run build && npm run push",
+    "dev": "npm run deploy"
+  }
+}
+```
+
+### ドキュメント組織
+
+#### README.md構造
+1. 概要とデモリンク
+2. 主な機能
+3. セットアップ手順
+4. 開発用コマンド
+5. API仕様
+6. セキュリティ特徴
+
+#### コード内ドキュメント
+- ファイルヘッダーに目的記載
+- 公開関数のJSDoc必須
+- 日本語での説明推奨
+
+## 例外
+- `node_modules/`: 自動管理のため触れない
+- `dist/`: ビルド成果物のため編集禁止
+- CLASP生成ファイル: 手動変更は最小限に

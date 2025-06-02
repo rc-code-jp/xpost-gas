@@ -1,0 +1,292 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# Google Apps Script デプロイメント
+
+## 目的
+安全で効率的なGoogle Apps Scriptデプロイメントプロセスを確立し、バージョン管理とリリース手順を標準化する。
+
+## コンテキスト
+- CLASP（Google Apps Script CLI）使用
+- TypeScript → JavaScript変換
+- NPMスクリプトによる自動化
+- VS Code統合開発環境
+- Gitベースのバージョン管理
+
+## ルール
+
+### NPMスクリプト標準化
+
+#### 基本コマンド定義
+`package.json` で以下のスクリプトを必須とする：
+
+✅ 推奨スクリプト構成:
+```json
+{
+  "scripts": {
+    "build": "tsc",
+    "push": "npx clasp push --force",
+    "deploy": "npm run build && npm run push",
+    "dev": "npm run deploy",
+    "login": "npx clasp login",
+    "status": "npx clasp status",
+    "logs": "npx clasp logs",
+    "open": "npx clasp open",
+    "info": "npx clasp status && npx clasp deployments",
+    "clean": "rm -rf dist/*.js",
+    "reset": "npm run clean && npm run deploy",
+    "watch": "tsc --watch"
+  }
+}
+```
+
+#### コマンド使用指針
+- **`npm run deploy`**: 最もよく使う統合コマンド
+- **`npm run dev`**: 開発時の短縮エイリアス
+- **`npm run watch`**: TypeScript変更監視
+- **`npm run reset`**: 問題発生時の完全リセット
+
+### VS Code統合
+
+#### タスク設定
+`.vscode/tasks.json` で以下を設定：
+
+✅ 推奨タスク構成:
+```json
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "GAS: Build & Deploy",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "deploy"],
+      "group": {
+        "kind": "build",
+        "isDefault": true
+      },
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "shared"
+      },
+      "problemMatcher": ["$tsc"]
+    },
+    {
+      "label": "GAS: Watch Mode",
+      "type": "shell",
+      "command": "npm",
+      "args": ["run", "watch"],
+      "group": "build",
+      "isBackground": true,
+      "presentation": {
+        "echo": true,
+        "reveal": "always",
+        "focus": false,
+        "panel": "dedicated"
+      },
+      "problemMatcher": ["$tsc-watch"]
+    }
+  ]
+}
+```
+
+#### ショートカット活用
+- **Ctrl+Shift+B** (macOS: Cmd+Shift+B): ビルド&デプロイ
+- **Ctrl+Shift+P** → "Tasks: Run Task": その他のタスク実行
+
+### デプロイメント手順
+
+#### 開発時デプロイ
+日常的な開発サイクル：
+
+```bash
+# 1. コード変更後の基本デプロイ
+npm run deploy
+
+# 2. 開発中の継続監視
+npm run watch
+# (別ターミナルで)
+npm run push  # 変更があった際に手動実行
+
+# 3. 問題発生時のリセット
+npm run reset
+```
+
+#### 本番デプロイ前チェック
+本番環境への反映前に必須確認：
+
+1. **コード品質確認**
+```typescript
+// テスト関数実行
+function runPreDeploymentChecks(): void {
+  Logger.log('=== 本番デプロイ前チェック ===');
+  
+  // 1. 設定確認
+  const requiredProps = ['TWITTER_CLIENT_ID', 'TWITTER_CLIENT_SECRET', 'SPREADSHEET_ID'];
+  const properties = PropertiesService.getScriptProperties().getProperties();
+  
+  for (const prop of requiredProps) {
+    if (!properties[prop]) {
+      throw new Error(`本番設定不備: ${prop} が未設定`);
+    }
+    Logger.log(`✅ ${prop}: 設定済み`);
+  }
+  
+  // 2. 基本機能テスト
+  const authUrl = startOAuthAuthentication();
+  if (!authUrl || !authUrl.includes('twitter.com')) {
+    throw new Error('OAuth URL生成に失敗');
+  }
+  Logger.log('✅ OAuth URL生成: 正常');
+  
+  // 3. スプレッドシート接続テスト
+  const authList = SpreadsheetManager.getAuthInfo(properties.SPREADSHEET_ID);
+  Logger.log(`✅ スプレッドシート接続: ${authList.length}件の認証情報`);
+  
+  Logger.log('=== 本番デプロイ準備完了 ===');
+}
+```
+
+2. **バージョン確認**
+```bash
+npm run info  # デプロイ状況確認
+npm run status  # ファイル状況確認
+```
+
+3. **手動テスト実行**
+```bash
+npm run open  # GASエディタで手動確認
+npm run logs  # 直近のログ確認
+```
+
+### バージョン管理
+
+#### Git連携
+デプロイ前のGit操作：
+
+```bash
+# 1. 変更コミット
+git add .
+git commit -m "feat: OAuth 2.0 PKCE対応を追加"
+
+# 2. デプロイ実行
+npm run deploy
+
+# 3. デプロイ後確認
+npm run info
+git tag -a v1.0.1 -m "OAuth 2.0 PKCE実装完了"
+git push origin main --tags
+```
+
+#### CLASPバージョン管理
+```bash
+# バージョン作成（重要な変更時）
+npx clasp version "OAuth 2.0 PKCE対応"
+
+# デプロイメント一覧確認
+npx clasp deployments
+
+# 特定バージョンへのロールバック（必要時）
+npx clasp deploy --versionNumber 2
+```
+
+### 設定ファイル管理
+
+#### .clasp.json
+プロジェクト設定の適切な管理：
+
+✅ 推奨設定:
+```json
+{
+  "scriptId": "YOUR_SCRIPT_ID",
+  "rootDir": "./dist",
+  "filePushOrder": [
+    "global.d.ts",
+    "Code.js",
+    "OAuth.js", 
+    "XPoster.js",
+    "SpreadsheetManager.js"
+  ]
+}
+```
+
+#### appsscript.json
+GASマニフェストの設定：
+
+✅ 推奨設定:
+```json
+{
+  "timeZone": "Asia/Tokyo",
+  "dependencies": {
+    "enabledAdvancedServices": []
+  },
+  "exceptionLogging": "STACKDRIVER",
+  "runtimeVersion": "V8",
+  "webapp": {
+    "access": "ANYONE",
+    "executeAs": "USER_DEPLOYING"
+  }
+}
+```
+
+### トラブルシューティング
+
+#### よくある問題と対処法
+
+1. **Push失敗**
+```bash
+# 権限エラーの場合
+npx clasp login  # 再ログイン
+
+# ファイル競合の場合
+npm run clean    # dist フォルダクリア
+npm run reset    # 完全リビルド
+```
+
+2. **TypeScriptエラー**
+```bash
+# 型エラー確認
+npm run build
+
+# 設定確認
+cat tsconfig.json
+```
+
+3. **実行時エラー**
+```bash
+# ログ確認
+npm run logs
+
+# GASエディタで詳細確認
+npm run open
+```
+
+#### 緊急時対応
+本番で問題が発生した場合：
+
+1. **即座にログ確認**
+```bash
+npm run logs | head -50
+```
+
+2. **前回バージョンへロールバック**
+```bash
+npx clasp deployments  # バージョン一覧確認
+npx clasp deploy --versionNumber [前回番号]
+```
+
+3. **修正版の迅速デプロイ**
+```bash
+# 修正後
+npm run deploy
+npm run logs  # 動作確認
+```
+
+## 例外
+- 緊急修正時のテスト簡略化（事後テスト必須）
+- 開発環境での実験的機能（本番反映前に削除）
+- レガシーバージョンとの互換性維持期間中の特例処理

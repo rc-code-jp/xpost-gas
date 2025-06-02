@@ -1,0 +1,280 @@
+---
+description: 
+globs: 
+alwaysApply: false
+---
+# OAuth 2.0 セキュリティルール
+
+## 目的
+OAuth 2.0 + PKCE認証の適切な実装により、セキュアで信頼性の高いX(Twitter) API連携を実現する。
+
+## コンテキスト
+- OAuth 2.0 Authorization Code + PKCE
+- Twitter API v2 対応
+- Google Apps Script Webアプリケーション
+- 複数アカウント管理
+- リフレッシュトークンによる長期認証
+
+## ルール
+
+### OAuth 2.0フロー実装
+
+#### Authorization Code + PKCE
+- PKCE（Proof Key for Code Exchange）を必須とする
+- code_verifierとcode_challengeの適切な生成
+- stateパラメータによるCSRF攻撃対策
+
+✅ 良い例:
+```typescript
+class XOAuth {
+  private static generateCodeVerifier(): string {
+    // 43-128文字のランダム文字列
+    const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~';
+    let result = '';
+    for (let i = 0; i < 128; i++) {
+      result += chars.charAt(Math.floor(Math.random() * chars.length));
+    }
+    return result;
+  }
+
+  private static generateCodeChallenge(verifier: string): string {
+    // SHA256ハッシュ化してBase64URL エンコード
+    const hash = Utilities.computeDigest(Utilities.DigestAlgorithm.SHA_256, verifier);
+    const base64 = Utilities.base64EncodeWebSafe(hash);
+    return base64.replace(/=/g, ''); // パディング除去
+  }
+
+  static getAuthorizationUrl(): string {
+    const codeVerifier = this.generateCodeVerifier();
+    const codeChallenge = this.generateCodeChallenge(codeVerifier);
+    const state = Utilities.getUuid();
+    
+    // 一時的に保存（認証完了時に使用）
+    PropertiesService.getScriptProperties().setProperties({
+      'OAUTH_CODE_VERIFIER': codeVerifier,
+      'OAUTH_STATE': state
+    });
+
+    const authUrl = `https://twitter.com/i/oauth2/authorize` +
+      `?response_type=code` +
+      `&client_id=${CLIENT_ID}` +
+      `&redirect_uri=${encodeURIComponent(REDIRECT_URI)}` +
+      `&scope=${encodeURIComponent(SCOPES)}` +
+      `&state=${state}` +
+      `&code_challenge=${codeChallenge}` +
+      `&code_challenge_method=S256`;
+
+    return authUrl;
+  }
+}
+```
+
+#### State検証
+- CSRFトークンとしてのstate使用
+- 認証開始時と完了時の値比較
+- 不正なリクエストの即座拒否
+
+✅ 良い例:
+```typescript
+static getAccessToken(authCode: string, state: string): AuthResult {
+  // State検証
+  const savedState = PropertiesService.getScriptProperties().getProperty('OAUTH_STATE');
+  if (!savedState || state !== savedState) {
+    throw new Error('不正な認証リクエストです。セキュリティエラー。');
+  }
+
+  // Code Verifier取得
+  const codeVerifier = PropertiesService.getScriptProperties().getProperty('OAUTH_CODE_VERIFIER');
+  if (!codeVerifier) {
+    throw new Error('認証セッションが無効です。最初からやり直してください。');
+  }
+
+  // 使用済みトークンをクリア
+  PropertiesService.getScriptProperties().deleteProperty('OAUTH_STATE');
+  PropertiesService.getScriptProperties().deleteProperty('OAUTH_CODE_VERIFIER');
+
+  // トークン交換処理...
+}
+```
+
+### トークン管理
+
+#### アクセストークン
+- 短期間有効性（2時間）
+- 使用前の有効性検証
+- エラー時の自動リフレッシュ
+
+✅ 良い例:
+```typescript
+static async makeAuthenticatedRequest(userId: string, url: string, options: any): Promise<any> {
+  const authInfo = SpreadsheetManager.getAuthInfoByUserId(SPREADSHEET_ID, userId);
+  if (!authInfo) {
+    throw new Error(`ユーザー ${userId} の認証情報が見つかりません`);
+  }
+
+  // 現在のトークンで試行
+  options.headers = {
+    ...options.headers,
+    'Authorization': `Bearer ${authInfo.token}`
+  };
+
+  let response = UrlFetchApp.fetch(url, options);
+  
+  // 401 Unauthorizedの場合はトークンリフレッシュ
+  if (response.getResponseCode() === 401) {
+    Logger.log(`ユーザー ${userId} のトークンをリフレッシュします`);
+    
+    const newTokens = await this.refreshAccessToken(authInfo.refreshToken);
+    
+    // 新しいトークンで再試行
+    options.headers['Authorization'] = `Bearer ${newTokens.accessToken}`;
+    response = UrlFetchApp.fetch(url, options);
+    
+    // 成功した場合は新しいトークンを保存
+    if (response.getResponseCode() === 200) {
+      SpreadsheetManager.updateAuthInfo(SPREADSHEET_ID, userId, newTokens.accessToken, newTokens.refreshToken);
+    }
+  }
+
+  return response;
+}
+```
+
+#### リフレッシュトークン
+- 安全な保存（スプレッドシート暗号化）
+- 使用時の検証
+- 無効化時の適切な処理
+
+✅ 良い例:
+```typescript
+static async refreshAccessToken(refreshToken: string): Promise<{accessToken: string, refreshToken: string}> {
+  const tokenUrl = 'https://api.twitter.com/2/oauth2/token';
+  
+  const payload = new URLSearchParams({
+    'refresh_token': refreshToken,
+    'grant_type': 'refresh_token',
+    'client_id': CLIENT_ID
+  });
+
+  const options: GoogleAppsScript.URL_Fetch.URLFetchRequestOptions = {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      'Authorization': `Basic ${Utilities.base64Encode(`${CLIENT_ID}:${CLIENT_SECRET}`)}`
+    },
+    payload: payload.toString(),
+    muteHttpExceptions: true
+  };
+
+  const response = UrlFetchApp.fetch(tokenUrl, options);
+  const responseCode = response.getResponseCode();
+  
+  if (responseCode !== 200) {
+    const errorText = response.getContentText();
+    Logger.log(`トークンリフレッシュエラー: ${responseCode} - ${errorText}`);
+    throw new Error(`トークンリフレッシュに失敗しました: ${responseCode}`);
+  }
+
+  const tokenData = JSON.parse(response.getContentText());
+  return {
+    accessToken: tokenData.access_token,
+    refreshToken: tokenData.refresh_token || refreshToken // 新しいリフレッシュトークンがない場合は既存を保持
+  };
+}
+```
+
+### セキュリティ保護
+
+#### 秘密情報の管理
+- PropertiesServiceによる安全な保存
+- ハードコーディング禁止
+- 環境変数的な使用
+
+✅ 良い例:
+```typescript
+// 設定値の安全な取得
+private static getSecureProperty(key: string): string {
+  const value = PropertiesService.getScriptProperties().getProperty(key);
+  if (!value) {
+    throw new Error(`必須設定 ${key} が設定されていません。プロパティサービスで設定してください。`);
+  }
+  return value;
+}
+
+// 使用例
+const CLIENT_ID = XOAuth.getSecureProperty('TWITTER_CLIENT_ID');
+const CLIENT_SECRET = XOAuth.getSecureProperty('TWITTER_CLIENT_SECRET');
+```
+
+#### エラーハンドリング
+- 詳細なエラー情報の非公開
+- セキュリティ関連エラーの適切な処理
+- ログによる監査証跡
+
+✅ 良い例:
+```typescript
+try {
+  const result = await this.makeAuthenticatedRequest(userId, url, options);
+  return result;
+} catch (error) {
+  // 詳細なエラーはログのみ
+  Logger.log(`API呼び出しエラー - ユーザー: ${userId}, URL: ${url}, エラー: ${error.toString()}`);
+  
+  // ユーザーには一般的なエラーメッセージ
+  if (error.toString().includes('401') || error.toString().includes('403')) {
+    throw new Error('認証エラーが発生しました。再認証が必要です。');
+  } else {
+    throw new Error('API呼び出しに失敗しました。しばらく待ってから再試行してください。');
+  }
+}
+```
+
+### Webアプリケーションセキュリティ
+
+#### doGet関数の保護
+- パラメータ検証
+- CSRF対策
+- XSS対策
+
+✅ 良い例:
+```typescript
+function doGet(e: GoogleAppsScript.Events.DoGet): GoogleAppsScript.HTML.HtmlOutput {
+  try {
+    const authCode = e.parameter.code;
+    const state = e.parameter.state;
+    const error = e.parameter.error;
+    
+    // パラメータ検証
+    if (error) {
+      Logger.log(`OAuth認証エラー: ${error}`);
+      return createErrorPage(`認証が拒否されました: ${error}`);
+    }
+    
+    if (!authCode || !state) {
+      Logger.log('OAuth パラメータ不足');
+      return createErrorPage('不正なリクエストです');
+    }
+    
+    // 認証処理
+    completeOAuthAuthentication(authCode, state);
+    return createSuccessPage();
+    
+  } catch (error) {
+    Logger.log(`doGet エラー: ${error.toString()}`);
+    return createErrorPage('認証処理中にエラーが発生しました');
+  }
+}
+
+function createErrorPage(message: string): GoogleAppsScript.HTML.HtmlOutput {
+  const safeMessage = HtmlService.createHtmlOutput(message).getContent(); // XSS対策
+  const html = `<html><body><h1>エラー</h1><p>${safeMessage}</p></body></html>`;
+  return HtmlService.createHtmlOutput(html)
+                    .setTitle('認証エラー')
+                    .setXFrameOptionsMode(HtmlService.XFrameOptionsMode.DENY);
+}
+```
+
+## 例外
+- 開発・テスト環境での一時的なハードコーディング（本番前削除）
+- デバッグ時のトークン情報ログ出力（機密情報除く）
+- レガシーシステム対応での段階的移行
