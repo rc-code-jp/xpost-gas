@@ -137,9 +137,9 @@ class XPoster {
   }
   
   /**
-   * 複数ユーザーでランダムツイート投稿
+   * 最初のユーザーでランダムツイート投稿
    */
-  public static postRandomTweetForUsers(spreadsheetId: string, sheetName: string = 'ポスト'): void {
+  public static postRandomTweetForFirstUser(spreadsheetId: string, sheetName: string = 'ポスト'): void {
     try {
       // 認証情報を取得
       const authList = SpreadsheetManager.getAuthInfo(spreadsheetId);
@@ -149,9 +149,8 @@ class XPoster {
         return;
       }
       
-      // ランダムでユーザーを選択
-      const randomUserIndex = Math.floor(Math.random() * authList.length);
-      const selectedUser = authList[randomUserIndex];
+      // 最初のユーザーを選択
+      const selectedUser = authList[0];
       
       // ランダムなポスト内容を取得
       const postContent = SpreadsheetManager.getRandomPostContent(spreadsheetId, sheetName);

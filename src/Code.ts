@@ -44,23 +44,6 @@ function completeOAuthAuthentication(authCode: string, state: string): void {
 }
 
 /**
- * ランダムなツイートを投稿する関数（メインの実行関数）
- */
-function postRandomTweet(): void {
-  try {
-    if (!SPREADSHEET_ID) {
-      throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
-    }
-    
-    XPoster.postRandomTweetForUsers(SPREADSHEET_ID);
-    
-  } catch (error) {
-    Logger.log(`ランダムツイート投稿エラー: ${error}`);
-    throw error;
-  }
-}
-
-/**
  * 指定されたシートからランダムなツイートを投稿する関数（共通処理）
  */
 function postRandomTweetWithSheet(sheetName: string): void {
@@ -69,7 +52,7 @@ function postRandomTweetWithSheet(sheetName: string): void {
       throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
     }
     
-    XPoster.postRandomTweetForUsers(SPREADSHEET_ID, sheetName);
+    XPoster.postRandomTweetForFirstUser(SPREADSHEET_ID, sheetName);
     
   } catch (error) {
     Logger.log(`ランダムツイート投稿エラー (${sheetName}): ${error}`);
@@ -381,18 +364,6 @@ function doGet(e: GoogleAppsScript.Events.DoGet): GoogleAppsScript.HTML.HtmlOutp
     `;
     
     return HtmlService.createHtmlOutput(errorHtml);
-  }
-}
-
-/**
- * 定期実行用の関数（トリガーで使用）
- */
-function scheduledTweet(): void {
-  try {
-    postRandomTweet();
-    Logger.log('✅ 定期ツイート投稿が完了しました');
-  } catch (error) {
-    Logger.log(`❌ 定期ツイート投稿エラー: ${error}`);
   }
 }
 
