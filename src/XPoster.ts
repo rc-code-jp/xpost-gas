@@ -139,7 +139,7 @@ class XPoster {
   /**
    * 複数ユーザーでランダムツイート投稿
    */
-  public static postRandomTweetForUsers(spreadsheetId: string): void {
+  public static postRandomTweetForUsers(spreadsheetId: string, sheetName: string = 'ポスト'): void {
     try {
       // 認証情報を取得
       const authList = SpreadsheetManager.getAuthInfo(spreadsheetId);
@@ -154,10 +154,11 @@ class XPoster {
       const selectedUser = authList[randomUserIndex];
       
       // ランダムなポスト内容を取得
-      const postContent = SpreadsheetManager.getRandomPostContent(spreadsheetId);
+      const postContent = SpreadsheetManager.getRandomPostContent(spreadsheetId, sheetName);
       
       Logger.log(`選択されたユーザー: ${selectedUser.userName}`);
       Logger.log(`投稿内容: ${postContent}`);
+      Logger.log(`使用シート: ${sheetName}`);
       
       // ツイート投稿
       const result = this.postTweet(selectedUser.token, selectedUser.refreshToken, postContent, spreadsheetId, selectedUser.userId);
@@ -179,7 +180,7 @@ class XPoster {
   /**
    * 特定ユーザーでツイート投稿
    */
-  public static postTweetForUser(spreadsheetId: string, userId: string, customText?: string): void {
+  public static postTweetForUser(spreadsheetId: string, userId: string, customText?: string, sheetName: string = 'ポスト'): void {
     try {
       // 指定ユーザーの認証情報を取得
       const authList = SpreadsheetManager.getAuthInfo(spreadsheetId, userId);
@@ -192,10 +193,11 @@ class XPoster {
       const user = authList[0];
       
       // 投稿内容を決定（カスタムテキストがあればそれを使用、なければランダム選択）
-      const postContent = customText || SpreadsheetManager.getRandomPostContent(spreadsheetId);
+      const postContent = customText || SpreadsheetManager.getRandomPostContent(spreadsheetId, sheetName);
       
       Logger.log(`投稿ユーザー: ${user.userName}`);
       Logger.log(`投稿内容: ${postContent}`);
+      Logger.log(`使用シート: ${sheetName}`);
       
       // ツイート投稿
       const result = this.postTweet(user.token, user.refreshToken, postContent, spreadsheetId, user.userId);

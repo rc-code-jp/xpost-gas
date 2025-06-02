@@ -61,6 +61,23 @@ function postRandomTweet(): void {
 }
 
 /**
+ * 指定されたシートからランダムなツイートを投稿する関数（共通処理）
+ */
+function postRandomTweetWithSheet(sheetName: string): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
+    }
+    
+    XPoster.postRandomTweetForUsers(SPREADSHEET_ID, sheetName);
+    
+  } catch (error) {
+    Logger.log(`ランダムツイート投稿エラー (${sheetName}): ${error}`);
+    throw error;
+  }
+}
+
+/**
  * 特定ユーザーでツイートを投稿する関数
  */
 function postTweetForSpecificUser(userId: string, customText?: string): void {
@@ -73,6 +90,23 @@ function postTweetForSpecificUser(userId: string, customText?: string): void {
     
   } catch (error) {
     Logger.log(`ユーザー指定ツイート投稿エラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * 特定ユーザーで指定シートからツイートを投稿する関数
+ */
+function postTweetForSpecificUserWithSheet(userId: string, sheetName: string, customText?: string): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
+    }
+    
+    XPoster.postTweetForUser(SPREADSHEET_ID, userId, customText, sheetName);
+    
+  } catch (error) {
+    Logger.log(`ユーザー指定ツイート投稿エラー (${sheetName}): ${error}`);
     throw error;
   }
 }
@@ -97,16 +131,16 @@ function getAuthenticationList(): Array<{userId: string, userName: string, token
 /**
  * ポスト内容一覧を取得する関数
  */
-function getPostContentsList(): string[] {
+function getPostContentsList(sheetName: string = 'ポスト'): string[] {
   try {
     if (!SPREADSHEET_ID) {
       throw new Error('SPREADSHEET_IDが設定されていません。プロパティサービスで設定してください。');
     }
     
-    return SpreadsheetManager.getPostContents(SPREADSHEET_ID);
+    return SpreadsheetManager.getPostContents(SPREADSHEET_ID, sheetName);
     
   } catch (error) {
-    Logger.log(`ポスト内容取得エラー: ${error}`);
+    Logger.log(`ポスト内容取得エラー (${sheetName}): ${error}`);
     throw error;
   }
 }
@@ -363,6 +397,42 @@ function scheduledTweet(): void {
 }
 
 /**
+ * 定期実行用の関数（posts_1シート用）
+ */
+function scheduledTweet1(): void {
+  try {
+    postRandomTweetWithSheet('posts_1');
+    Logger.log('✅ 定期ツイート投稿が完了しました (posts_1)');
+  } catch (error) {
+    Logger.log(`❌ 定期ツイート投稿エラー (posts_1): ${error}`);
+  }
+}
+
+/**
+ * 定期実行用の関数（posts_2シート用）
+ */
+function scheduledTweet2(): void {
+  try {
+    postRandomTweetWithSheet('posts_2');
+    Logger.log('✅ 定期ツイート投稿が完了しました (posts_2)');
+  } catch (error) {
+    Logger.log(`❌ 定期ツイート投稿エラー (posts_2): ${error}`);
+  }
+}
+
+/**
+ * 定期実行用の関数（posts_3シート用）
+ */
+function scheduledTweet3(): void {
+  try {
+    postRandomTweetWithSheet('posts_3');
+    Logger.log('✅ 定期ツイート投稿が完了しました (posts_3)');
+  } catch (error) {
+    Logger.log(`❌ 定期ツイート投稿エラー (posts_3): ${error}`);
+  }
+}
+
+/**
  * テスト用の関数
  */
 function testFunction(): void {
@@ -380,12 +450,20 @@ function testFunction(): void {
     const authList = getAuthenticationList();
     Logger.log(`認証済みユーザー数: ${authList.length}`);
     
-    // ポスト内容取得テスト
-    const postContents = getPostContentsList();
-    Logger.log(`ポスト内容数: ${postContents.length}`);
+    // 各シートのポスト内容取得テスト
+    const sheetNames = ['ポスト', 'posts_1', 'posts_2', 'posts_3'];
     
-    if (postContents.length > 0) {
-      Logger.log(`サンプルポスト内容: ${postContents[0]}`);
+    for (const sheetName of sheetNames) {
+      try {
+        const postContents = getPostContentsList(sheetName);
+        Logger.log(`${sheetName}シートのポスト内容数: ${postContents.length}`);
+        
+        if (postContents.length > 0) {
+          Logger.log(`${sheetName}シートのサンプルポスト内容: ${postContents[0]}`);
+        }
+      } catch (error) {
+        Logger.log(`${sheetName}シートのポスト内容取得エラー: ${error}`);
+      }
     }
     
     // トークン検証テスト
@@ -393,6 +471,12 @@ function testFunction(): void {
       Logger.log('--- トークン検証テスト ---');
       validateAndRefreshAllTokens();
     }
+    
+    // 新しいscheduledTweet関数のテスト（実際の投稿はしない）
+    Logger.log('--- 新しいscheduledTweet関数のテスト ---');
+    Logger.log('scheduledTweet1: posts_1シート用');
+    Logger.log('scheduledTweet2: posts_2シート用');
+    Logger.log('scheduledTweet3: posts_3シート用');
     
     Logger.log('=== テスト完了 ===');
     

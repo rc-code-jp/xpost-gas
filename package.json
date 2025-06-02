@@ -5,12 +5,11 @@
   "scripts": {
     "build": "tsc",
     "push": "npx clasp push --force",
-    "deploy": "npm run build && npm run push",
-    "dev": "npm run deploy",
     "login": "npx clasp login",
     "status": "npx clasp status",
     "logs": "npx clasp logs",
     "open": "npx clasp open",
+    "deploy": "npm run build && npm run push && npm run open",
     "info": "npx clasp status && npx clasp deployments",
     "clean": "rm -rf dist/*.js",
     "reset": "npm run clean && npm run deploy",
