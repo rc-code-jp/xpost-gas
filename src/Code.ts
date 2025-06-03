@@ -138,9 +138,13 @@ function validateAndRefreshAllTokens(): void {
     }
     
     const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID);
+    Logger.log(`総ユーザー数: ${authList.length}`);
     
     for (const user of authList) {
-      Logger.log(`ユーザー ${user.userName} のトークンをテスト中...`);
+      Logger.log(`\n=== ユーザー ${user.userName} (${user.userId}) のトークンテスト開始 ===`);
+      Logger.log(`アクセストークン存在: ${user.token ? 'あり' : 'なし'}`);
+      Logger.log(`リフレッシュトークン存在: ${user.refreshToken ? 'あり' : 'なし'}`);
+      
       const isValid = XPoster.testUserToken(SPREADSHEET_ID, user.userId);
       
       if (isValid) {
@@ -148,10 +152,167 @@ function validateAndRefreshAllTokens(): void {
       } else {
         Logger.log(`❌ ${user.userName}: トークン無効または更新失敗`);
       }
+      Logger.log(`=== ユーザー ${user.userName} のテスト完了 ===\n`);
     }
     
   } catch (error) {
     Logger.log(`トークン検証エラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * OAuth設定の診断を行う関数
+ */
+function diagnoseOAuthConfiguration(): void {
+  try {
+    const clientId = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_ID');
+    const clientSecret = PropertiesService.getScriptProperties().getProperty('TWITTER_CLIENT_SECRET');
+    const spreadsheetId = PropertiesService.getScriptProperties().getProperty('SPREADSHEET_ID');
+    
+    Logger.log('=== OAuth設定診断 ===');
+    Logger.log(`TWITTER_CLIENT_ID: ${clientId ? '設定済み' : '未設定'}`);
+    Logger.log(`TWITTER_CLIENT_SECRET: ${clientSecret ? '設定済み' : '未設定'}`);
+    Logger.log(`SPREADSHEET_ID: ${spreadsheetId ? '設定済み' : '未設定'}`);
+    
+    if (!clientId || !clientSecret) {
+      Logger.log('❌ OAuth設定が不完全です。Twitter APIの認証情報を確認してください。');
+      return;
+    }
+    
+    if (!spreadsheetId) {
+      Logger.log('❌ スプレッドシートIDが設定されていません。');
+      return;
+    }
+    
+    Logger.log('✅ 基本設定は完了しています。');
+    
+    // 認証情報の確認
+    try {
+      const authList = SpreadsheetManager.getAuthInfo(spreadsheetId);
+      Logger.log(`認証済みユーザー数: ${authList.length}`);
+      
+      if (authList.length === 0) {
+        Logger.log('⚠️ 認証済みユーザーがいません。OAuth認証を実行してください。');
+      }
+    } catch (error) {
+      Logger.log(`認証情報取得エラー: ${error}`);
+    }
+    
+  } catch (error) {
+    Logger.log(`OAuth設定診断エラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * 指定ユーザーのアクセストークンを詳細診断する関数
+ */
+function diagnoseUserToken(userId: string): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。');
+    }
+    
+    const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID, userId);
+    
+    if (authList.length === 0) {
+      Logger.log(`❌ ユーザー ${userId} の認証情報が見つかりません`);
+      return;
+    }
+    
+    const user = authList[0];
+    
+    Logger.log(`\n=== ユーザー ${user.userName} (${user.userId}) のトークン詳細診断 ===`);
+    Logger.log(`アクセストークン長: ${user.token ? user.token.length : 0}文字`);
+    Logger.log(`リフレッシュトークン長: ${user.refreshToken ? user.refreshToken.length : 0}文字`);
+    Logger.log(`アクセストークン先頭10文字: ${user.token ? user.token.substring(0, 10) + '...' : 'なし'}`);
+    
+    // Twitter APIでユーザー情報を取得してトークンをテスト
+    Logger.log('Twitter API /users/me エンドポイントでトークンテスト中...');
+    
+    try {
+      const options = {
+        method: 'get' as const,
+        headers: {
+          'Authorization': `Bearer ${user.token}`
+        },
+        muteHttpExceptions: true
+      };
+      
+      const response = UrlFetchApp.fetch('https://api.twitter.com/2/users/me', options);
+      const responseText = response.getContentText();
+      const responseCode = response.getResponseCode();
+      
+      Logger.log(`レスポンスコード: ${responseCode}`);
+      Logger.log(`レスポンス本文: ${responseText}`);
+      
+      if (responseCode === 200) {
+        const userData = JSON.parse(responseText);
+        Logger.log(`✅ トークン有効 - ユーザー: ${userData.data.username} (${userData.data.id})`);
+      } else if (responseCode === 401) {
+        Logger.log('❌ アクセストークンが無効です。リフレッシュを試行します。');
+        
+        // リフレッシュトークンでの更新を試行
+        try {
+          Logger.log('リフレッシュトークンを使用してアクセストークンを更新中...');
+          const newTokens = XOAuth.refreshAccessToken(user.refreshToken);
+          Logger.log('✅ トークン更新成功');
+          Logger.log(`新しいアクセストークン長: ${newTokens.accessToken.length}文字`);
+          Logger.log(`新しいアクセストークン先頭10文字: ${newTokens.accessToken.substring(0, 10)}...`);
+        } catch (refreshError) {
+          Logger.log(`❌ リフレッシュトークンも無効: ${refreshError}`);
+        }
+      } else {
+        Logger.log(`⚠️ 予期しないレスポンス: ${responseCode} - ${responseText}`);
+      }
+      
+    } catch (error) {
+      Logger.log(`API呼び出しエラー: ${error}`);
+    }
+    
+  } catch (error) {
+    Logger.log(`トークン診断エラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * 簡単なテスト投稿を行う関数（実際には投稿せず、API呼び出しまでの過程をテスト）
+ */
+function testTweetAPICall(userId: string, testText: string = "テスト投稿（実際には投稿されません）"): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。');
+    }
+    
+    const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID, userId);
+    
+    if (authList.length === 0) {
+      Logger.log(`❌ ユーザー ${userId} の認証情報が見つかりません`);
+      return;
+    }
+    
+    const user = authList[0];
+    
+    Logger.log(`\n=== ユーザー ${user.userName} のTwitter API呼び出しテスト ===`);
+    Logger.log(`テストテキスト: ${testText}`);
+    
+    // リクエストボディを準備
+    const requestBody = JSON.stringify({
+      text: testText
+    });
+    
+    Logger.log(`リクエストボディ: ${requestBody}`);
+    Logger.log(`アクセストークン確認: ${user.token ? '存在' : '未設定'}`);
+    Logger.log(`Authorization ヘッダー: Bearer ${user.token ? user.token.substring(0, 20) + '...' : 'なし'}`);
+    
+    // 注意：実際のAPI呼び出しは行わず、ここまでの情報をログ出力
+    Logger.log('⚠️ 実際のAPI呼び出しはスキップします（テスト用）');
+    Logger.log('実際の投稿を行う場合は、XPoster.postTweet() を使用してください');
+    
+  } catch (error) {
+    Logger.log(`テスト投稿エラー: ${error}`);
     throw error;
   }
 }
@@ -454,4 +615,143 @@ function testFunction(): void {
   } catch (error) {
     Logger.log(`テストエラー: ${error}`);
   }
+}
+
+/**
+ * 無効なトークンを持つユーザーをクリーンアップする関数
+ */
+function cleanupInvalidTokens(): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。');
+    }
+    
+    const authList = SpreadsheetManager.getAuthInfo(SPREADSHEET_ID);
+    Logger.log(`=== 無効トークンのクリーンアップ開始 ===`);
+    Logger.log(`対象ユーザー数: ${authList.length}`);
+    
+    const invalidUsers: string[] = [];
+    
+    for (const user of authList) {
+      Logger.log(`\n--- ユーザー ${user.userName} (${user.userId}) のトークン検証 ---`);
+      
+      // アクセストークンのテスト
+      const isAccessTokenValid = XOAuth.testAccessToken(user.token);
+      Logger.log(`アクセストークン: ${isAccessTokenValid ? '有効' : '無効'}`);
+      
+      if (!isAccessTokenValid) {
+        // リフレッシュトークンのテスト
+        try {
+          Logger.log('リフレッシュトークンを使用してアクセストークンの更新を試行...');
+          const newTokens = XOAuth.refreshAccessToken(user.refreshToken);
+          Logger.log('✅ リフレッシュ成功 - トークンを更新します');
+          
+          // スプレッドシートのトークンを更新
+          const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+          const authSheet = spreadsheet.getSheetByName('認証情報');
+          if (authSheet) {
+            const lastRow = authSheet.getLastRow();
+            const data = authSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+            
+            for (let i = 0; i < data.length; i++) {
+              if (data[i][0].toString() === user.userId) {
+                authSheet.getRange(i + 2, 3).setValue(newTokens.accessToken);
+                authSheet.getRange(i + 2, 4).setValue(newTokens.refreshToken);
+                Logger.log(`ユーザー ${user.userName} のトークンを更新しました`);
+                break;
+              }
+            }
+          }
+          
+        } catch (refreshError) {
+          Logger.log(`❌ リフレッシュ失敗: ${refreshError}`);
+          Logger.log(`ユーザー ${user.userName} は再認証が必要です`);
+          invalidUsers.push(`${user.userName} (${user.userId})`);
+        }
+      } else {
+        Logger.log(`✅ ユーザー ${user.userName} のトークンは有効です`);
+      }
+    }
+    
+    Logger.log(`\n=== クリーンアップ結果 ===`);
+    if (invalidUsers.length === 0) {
+      Logger.log('✅ すべてのユーザーのトークンが有効です');
+    } else {
+      Logger.log(`❌ 以下のユーザーは再認証が必要です:`);
+      invalidUsers.forEach(user => Logger.log(`  - ${user}`));
+      Logger.log(`\n再認証手順:`);
+      Logger.log(`1. WebアプリのURLにアクセス: ${ScriptApp.getService().getUrl()}`);
+      Logger.log(`2. Twitter認証を実行`);
+      Logger.log(`3. 認証完了後、再度投稿をお試しください`);
+    }
+    
+  } catch (error) {
+    Logger.log(`クリーンアップエラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * 特定ユーザーの認証情報を削除する関数
+ */
+function removeUserAuth(userId: string): void {
+  try {
+    if (!SPREADSHEET_ID) {
+      throw new Error('SPREADSHEET_IDが設定されていません。');
+    }
+    
+    const spreadsheet = SpreadsheetApp.openById(SPREADSHEET_ID);
+    const authSheet = spreadsheet.getSheetByName('認証情報');
+    
+    if (!authSheet) {
+      Logger.log('認証情報シートが見つかりません');
+      return;
+    }
+    
+    const lastRow = authSheet.getLastRow();
+    if (lastRow <= 1) {
+      Logger.log('認証情報が存在しません');
+      return;
+    }
+    
+    const data = authSheet.getRange(2, 1, lastRow - 1, 4).getValues();
+    
+    for (let i = 0; i < data.length; i++) {
+      if (data[i][0].toString() === userId) {
+        // 該当行を削除
+        authSheet.deleteRow(i + 2);
+        Logger.log(`✅ ユーザー ${userId} の認証情報を削除しました`);
+        Logger.log(`再認証が必要です: ${ScriptApp.getService().getUrl()}`);
+        return;
+      }
+    }
+    
+    Logger.log(`ユーザー ${userId} の認証情報が見つかりませんでした`);
+    
+  } catch (error) {
+    Logger.log(`認証情報削除エラー: ${error}`);
+    throw error;
+  }
+}
+
+/**
+ * 再認証が必要なユーザー向けの案内情報を表示する関数
+ */
+function showReAuthenticationGuide(): void {
+  const webAppUrl = ScriptApp.getService().getUrl();
+  
+  Logger.log('\n=== 再認証ガイド ===');
+  Logger.log('トークンが無効になったユーザーは以下の手順で再認証してください：');
+  Logger.log('');
+  Logger.log('1. 以下のURLにアクセス:');
+  Logger.log(`   ${webAppUrl}`);
+  Logger.log('');
+  Logger.log('2. 「Twitter認証URL」をクリック');
+  Logger.log('');
+  Logger.log('3. Twitterで認証を許可');
+  Logger.log('');
+  Logger.log('4. 認証完了後、再度投稿をお試しください');
+  Logger.log('');
+  Logger.log('※ 認証は各ユーザーごとに個別に実行する必要があります');
+  Logger.log('=================');
 } 

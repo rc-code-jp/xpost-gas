@@ -108,7 +108,8 @@ class XOAuth {
           'Authorization': `Basic ${credentials}`,
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        payload: this.buildQueryString(tokenParams)
+        payload: this.buildQueryString(tokenParams),
+        muteHttpExceptions: true
       };
       
       const response = UrlFetchApp.fetch('https://api.twitter.com/2/oauth2/token', options);
@@ -147,6 +148,9 @@ class XOAuth {
    */
   public static refreshAccessToken(refreshToken: string): {accessToken: string, refreshToken: string} {
     try {
+      Logger.log(`リフレッシュトークンを使用してアクセストークンを更新開始`);
+      Logger.log(`リフレッシュトークン存在確認: ${refreshToken ? 'あり' : 'なし'}`);
+      
       const tokenParams = {
         'grant_type': 'refresh_token',
         'refresh_token': refreshToken,
@@ -154,6 +158,8 @@ class XOAuth {
       };
       
       const credentials = Utilities.base64Encode(`${this.CLIENT_ID}:${this.CLIENT_SECRET}`);
+      Logger.log(`Client ID設定確認: ${this.CLIENT_ID ? 'あり' : 'なし'}`);
+      Logger.log(`Client Secret設定確認: ${this.CLIENT_SECRET ? 'あり' : 'なし'}`);
       
       const options = {
         method: 'post' as const,
@@ -161,15 +167,21 @@ class XOAuth {
           'Authorization': `Basic ${credentials}`,
           'Content-Type': 'application/x-www-form-urlencoded'
         },
-        payload: this.buildQueryString(tokenParams)
+        payload: this.buildQueryString(tokenParams),
+        muteHttpExceptions: true
       };
       
+      Logger.log('Twitter APIにリフレッシュリクエスト送信中...');
       const response = UrlFetchApp.fetch('https://api.twitter.com/2/oauth2/token', options);
       const responseText = response.getContentText();
       const responseCode = response.getResponseCode();
       
+      Logger.log(`リフレッシュレスポンスコード: ${responseCode}`);
+      Logger.log(`リフレッシュレスポンス本文: ${responseText}`);
+      
       if (responseCode === 200) {
         const tokenData = JSON.parse(responseText);
+        Logger.log('リフレッシュトークンによるアクセストークン更新成功');
         
         return {
           accessToken: tokenData.access_token,
@@ -177,11 +189,13 @@ class XOAuth {
         };
         
       } else {
+        Logger.log(`リフレッシュトークンエラー - レスポンスコード: ${responseCode}`);
+        Logger.log(`リフレッシュトークンエラー - エラー詳細: ${responseText}`);
         throw new Error(`トークン更新エラー: ${responseCode} - ${responseText}`);
       }
       
     } catch (error) {
-      Logger.log(`トークン更新エラー: ${error}`);
+      Logger.log(`リフレッシュトークン処理で例外発生: ${error}`);
       throw error;
     }
   }
@@ -195,7 +209,8 @@ class XOAuth {
         method: 'get' as const,
         headers: {
           'Authorization': `Bearer ${accessToken}`
-        }
+        },
+        muteHttpExceptions: true
       };
       
       const response = UrlFetchApp.fetch('https://api.twitter.com/2/users/me', options);

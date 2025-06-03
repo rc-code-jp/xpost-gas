@@ -1,10 +1,1 @@
-{
-  "scriptId": "1FPX97_19GFZQdEj3DGy-E6T-cdEkrNjbO3vxh8zKzROo_son5-cZpait",
-  "rootDir": "./dist",
-  "filePushOrder": [
-    "Code.js",
-    "OAuth.js",
-    "XPoster.js",
-    "SpreadsheetManager.js"
-  ]
-}
+{"scriptId":"1FPX97_19GFZQdEj3DGy-E6T-cdEkrNjbO3vxh8zKzROo_son5-cZpait","rootDir":"./dist","filePushOrder":["Code.js","OAuth.js","XPoster.js","SpreadsheetManager.js"],"projectId":"q"}

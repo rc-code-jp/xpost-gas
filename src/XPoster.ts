@@ -22,7 +22,8 @@ class XPoster {
           'Authorization': `Bearer ${accessToken}`,
           'Content-Type': 'application/json'
         },
-        payload: requestBody
+        payload: requestBody,
+        muteHttpExceptions: true
       };
       
       const response = UrlFetchApp.fetch(postUrl, options);
@@ -40,6 +41,7 @@ class XPoster {
       } else if (responseCode === 401) {
         // アクセストークンが期限切れの場合、リフレッシュを試行
         Logger.log('アクセストークンが期限切れ、リフレッシュを試行します');
+        Logger.log(`401エラーの詳細: ${responseText}`);
         
         try {
           const newTokens = XOAuth.refreshAccessToken(refreshToken);
@@ -54,7 +56,8 @@ class XPoster {
               'Authorization': `Bearer ${newTokens.accessToken}`,
               'Content-Type': 'application/json'
             },
-            payload: requestBody
+            payload: requestBody,
+            muteHttpExceptions: true
           };
           
           const retryResponse = UrlFetchApp.fetch(postUrl, retryOptions);
@@ -71,6 +74,8 @@ class XPoster {
               newTokens: newTokens
             };
           } else {
+            Logger.log(`トークン更新後の投稿失敗 - レスポンスコード: ${retryResponseCode}`);
+            Logger.log(`トークン更新後の投稿失敗 - レスポンス本文: ${retryResponseText}`);
             return {
               success: false,
               message: `トークン更新後の投稿エラー: ${retryResponseCode} - ${retryResponseText}`
@@ -78,6 +83,22 @@ class XPoster {
           }
           
         } catch (refreshError) {
+          Logger.log(`リフレッシュトークンエラーの詳細: ${refreshError}`);
+          Logger.log(`リフレッシュトークン: ${refreshToken ? '存在' : '未設定'}`);
+          
+          // リフレッシュトークンも無効な場合の特別処理
+          if (refreshError.toString().includes('invalid_request') || 
+              refreshError.toString().includes('Value passed for the token was invalid') ||
+              refreshError.toString().includes('400')) {
+            Logger.log(`❌ リフレッシュトークンも無効です。ユーザー ${userId} は再認証が必要です。`);
+            Logger.log(`再認証URL: ${ScriptApp.getService().getUrl()}`);
+            
+            return {
+              success: false,
+              message: `リフレッシュトークンが無効です。再認証が必要です。再認証URL: ${ScriptApp.getService().getUrl()}`
+            };
+          }
+          
           return {
             success: false,
             message: `トークン更新エラー: ${refreshError}`
