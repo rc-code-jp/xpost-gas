@@ -113,18 +113,58 @@ class SpreadsheetManager {
       }
       
       const lastRow = postSheet.getLastRow();
-      if (lastRow <= 1) {
+      
+      // データが存在しない場合は空配列を返す
+      if (lastRow === 0) {
+        Logger.log(`${sheetName}シートにデータが存在しません`);
         return [];
       }
       
-      const contents = postSheet.getRange(2, 1, lastRow - 1, 1).getValues()
-        .map((row: any[]) => row[0].toString())
-        .filter((content: string) => content.trim() !== '');
+      // ヘッダー行があるかどうかを判断
+      let hasHeader = false;
+      let startRow = 1;
+      
+      if (lastRow >= 1) {
+        const firstCellValue = postSheet.getRange(1, 1).getValue();
+        const firstCellText = firstCellValue ? firstCellValue.toString().trim().toLowerCase() : '';
+        
+        // ヘッダー行と思われる文字列をチェック
+        const headerKeywords = ['post_content', 'content', 'tweet', 'posts', 'text', 'messages'];
+        hasHeader = headerKeywords.some(keyword => firstCellText.includes(keyword));
+        
+        if (hasHeader) {
+          startRow = 2;
+          Logger.log(`${sheetName}シートにヘッダー行が検出されました: "${firstCellText}"`);
+        } else {
+          startRow = 1;
+          Logger.log(`${sheetName}シートはヘッダー行なしと判断されました`);
+        }
+      }
+      
+      // ヘッダー行を考慮してデータ行数を計算
+      const dataRows = lastRow - (hasHeader ? 1 : 0);
+      
+      // データが存在しない場合は空配列を返す
+      if (dataRows <= 0) {
+        Logger.log(`${sheetName}シートにデータ行が存在しません（ヘッダー行のみ）`);
+        return [];
+      }
+      
+      // データを取得してフィルタリング
+      const contents = postSheet.getRange(startRow, 1, dataRows, 1).getValues()
+        .map((row: any[]) => row[0] ? row[0].toString().trim() : '')
+        .filter((content: string) => content !== '');
+      
+      Logger.log(`${sheetName}シートから${contents.length}件のポスト内容を取得しました（開始行: ${startRow}, データ行数: ${dataRows}）`);
+      
+      if (contents.length === 0) {
+        Logger.log(`${sheetName}シートにポスト内容が見つかりません（空のセルまたは空白文字のみ）`);
+      }
       
       return contents;
       
     } catch (error) {
-      Logger.log(`ポスト内容取得エラー: ${error}`);
+      Logger.log(`ポスト内容取得エラー (${sheetName}): ${error}`);
       throw error;
     }
   }
@@ -136,13 +176,18 @@ class SpreadsheetManager {
     const contents = this.getPostContents(spreadsheetId, sheetName);
     
     if (contents.length === 0) {
-      throw new Error('ポスト内容が見つかりません');
+      const message = `${sheetName}シートにポスト内容が見つかりません。以下を確認してください：
+1. ${sheetName}シートに2行目以降にポスト内容が入力されているか
+2. ポスト内容が空白文字のみになっていないか
+3. セルに何も入力されていないか`;
+      Logger.log(message);
+      throw new Error(`${sheetName}シートにポスト内容が見つかりません`);
     }
     
     const randomIndex = Math.floor(Math.random() * contents.length);
     const selectedContent = contents[randomIndex];
     
-    Logger.log(`ランダム選択されたポスト内容: ${selectedContent}`);
+    Logger.log(`${sheetName}シートからランダム選択されたポスト内容 (${randomIndex + 1}/${contents.length}): ${selectedContent}`);
     return selectedContent;
   }
 } 
